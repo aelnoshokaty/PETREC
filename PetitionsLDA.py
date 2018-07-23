@@ -26,7 +26,7 @@ from nltk.corpus import wordnet
 #Cleaning includes converting lowercase, remove stopwords wordnet, pucntuation
 # remove email, mentions, URLs, use WordNet Lemmatizer and porter stemmer
 
-class LDAPreplexity:
+class LDA:
 
     def __init__(self):
         client = MongoClient('mongodb://localhost:27017/')
@@ -39,11 +39,7 @@ class LDAPreplexity:
         self.corpusVectorized=None
         self.vectorizer=None
 
-    def getPetitionsWithWords(self, word1):
-        cur = self.petitionDocs.find({"overview": {'$regex': word1}}, no_cursor_timeout=True)
-        for u in cur:
-            #print u['id']
-            print 'petition: '+str(u['petition_id'])+' overview :'+u["overview"]
+
 
     # LDA with 80% training and 20% testing as well as computing preplexity
     def get_LDA(self):
@@ -192,10 +188,10 @@ class LDAPreplexity:
                 print(e)
 
 def main():
-    obj = LDAPreplexity()
+    obj = LDA()
     #obj.get_LDA()
     #obj.get_LDA_TFIDF(40)
-    #obj.getPetitionsWithWords("polar")
+    obj.getPetitionsWithWords("polar")
     obj.renameTFIDFColumn()
 
 if __name__ == '__main__':

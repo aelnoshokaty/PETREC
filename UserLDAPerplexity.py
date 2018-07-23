@@ -88,8 +88,7 @@ class LDAPreplexity:
     def get_LDA(self):
         verbNoun=['VBZ','VBP','VBN','VBG','VBD','VB','NNS','NNPS','NNP','NN']
         adverbAdjectives=['WRB','RBS','RBR','RB','JJS','JJR','JJ']
-        cursor=self.userDocs.find({"$or": [{"GT": 0}, {"GT": 1}]}, no_cursor_timeout=True).limit(int(self.Eighty))
-        cursor.sort('id', 1)
+        cursor=self.userDocs.find({"$or": [{"GT": 0}, {"GT": 1}]}, no_cursor_timeout=True).sort('id', 1).limit(int(self.Eighty))
         doc_complete=[]
         doc_clean=[]
         doc_completeT=[]
@@ -176,8 +175,7 @@ class LDAPreplexity:
 
         # Prepare the testing dataset
         countT=0
-        cursor = self.userDocs.find({"$or": [{"GT": 0}, {"GT": 1}]}, no_cursor_timeout=True).limit(int(self.Twenty))
-        cursor.sort('id', -1)
+        cursor = self.userDocs.find({"$or": [{"GT": 0}, {"GT": 1}]}, no_cursor_timeout=True).sort('id', -1).limit(int(self.Twenty))
         for p in cursor:
             temp = ""
             #strip = TextCleaning.strip_tags(p['title'].encode('UTF-8') + " " + p['overview'].encode('UTF-8'))

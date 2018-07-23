@@ -6,8 +6,14 @@ import time
 import datetime
 from scipy.spatial.distance import cosine, euclidean
 from sklearn.metrics.pairwise import linear_kernel
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn import cross_validation as cv
 import matplotlib.pyplot as plt
+import TextCleaning
+import sys
+reload(sys)
+sys.setdefaultencoding('utf8')
 
 client = MongoClient('mongodb://localhost:27017/')
 collectionUser = client.ClimateChange.UserNew
@@ -22,7 +28,6 @@ RDb_copy=dbOld.Rating_copy
 
 
 class Recommender:
-
 
 
     def __init__(self):
@@ -164,9 +169,9 @@ class Recommender:
     # Calculate the RMSE
     def rmse_hyb(self,I,R,Q,P):
         wMF=0.95
-        wPC=0.05
-        #wUC=0.1
-        return np.sqrt(np.sum((I * (R - self.MatrixPred(P,Q)*wMF-self.Con_pRstar*wPC))**2)/len(R[R > 0]))
+        wPC=0.02
+        wUC=0.03
+        return np.sqrt(np.sum((I * (R - self.MatrixPred(P,Q)*wMF-self.Con_pRstar*wPC-self.Con_uRstar*wUC))**2)/len(R[R > 0]))
 
 
     def rmse(self,I,R,Q,P):
@@ -262,8 +267,10 @@ class Recommender:
                 pic=1
             else:
                 pic=0
-            features.append(wc)
+
             features.append(pic)
+
+            features.append(wc)
             features.append(p['petitionLength_norm'])
             features.append(p['avg_len_sentences_words_norm'])
             features.append(p['positive_norm'])
@@ -274,12 +281,16 @@ class Recommender:
             features.append(p['moral_norm'])
             features.append(p['expressivness'])
             features.append(p['pronoun_norm'])
+
+
             features.append(p['supporters_remaining_percent'])
             features.append(p['Twitter_mentions_norm'])
             features.append(p['reasons_count_norm'])
             features.append(p['updates_count_norm'])
+
             for i in range(50):
                 features.append(p['TFIDF_LDA_50topics_topic'+str(i)])
+
             petitionsF[p['petition_id']]=features
         return petitionsF
 
@@ -321,9 +332,11 @@ class Recommender:
             features.append(u['tweetsHashtags'])
             features.append(u['tweetAvgLength'])
             features.append(u['expressivness'])
+
             for i in range(50):
                 features.append(u['TFIDF_LDA_50topics_topic'+str(i)])
             usersF[u['id_str']]=features
+
         for key in usersF:
             usersF[key][0]=usersF[key][0]/max_statuses_count
             usersF[key][1]=usersF[key][1]/max_followers_count
@@ -333,6 +346,7 @@ class Recommender:
             usersF[key][5] = usersF[key][5] / max_tweetsRetweets_count
             usersF[key][6] = usersF[key][6] / max_tweetsHashtags
             usersF[key][7] = usersF[key][7] / max_tweetAvgLength
+
         return usersF
 
     def contF_recommenderPetitions_model(self):
@@ -341,7 +355,7 @@ class Recommender:
         results = {}
         resultsIndexes={}
         for idx, row in self.petitionFSorted.iteritems():
-                similar_indices = petitions_cosine_similarities[count].argsort()[:-100:-1]
+                similar_indices = petitions_cosine_similarities[count].argsort()[:-10:-1]
                 similar_items = [(petitions_cosine_similarities[count][i], self.petitionFSorted[idx]) for i in similar_indices]
 
                 # First item is the item itself, so remove it.
@@ -368,7 +382,7 @@ class Recommender:
         results = {}
         resultsIndexes={}
         for idx, row in self.userFSorted.iteritems():
-                similar_indices = users_cosine_similarities[count].argsort()[:-100:-1]
+                similar_indices = users_cosine_similarities[count].argsort()[:-10:-1]
                 similar_items = [(users_cosine_similarities[count][i], self.userFSorted[idx]) for i in similar_indices]
 
                 # First item is the item itself, so remove it.
@@ -389,6 +403,125 @@ class Recommender:
         self.uResultsIndexes=resultsIndexes
         return
 
+
+    def contF_recommenderUsers_BoW(self):
+        temp_usersF={}
+        usersF = {}
+        results={}
+        resultsIndexes={}
+        desc=[]
+        for p in self.collectionUser.find({"$or": [{"GT": 0}, {"GT": 1}, {"GT": -1}]}):
+            st=TextCleaning.strip_tags(p['LDA_cleanedDescription'].decode('utf-8').strip().lower())
+            temp_usersF[p['id_str']]=st
+            desc.append(st)
+        print('Number of words (after pre-processing) in the corpus = ',
+              len(set([word for w in desc for word in w])))
+        for k in self.userFSorted:
+            usersF[k]=temp_usersF[k]
+        tf = TfidfVectorizer(analyzer='word', stop_words='english')
+
+        #ds=pd.DataFrame(usersF.items(), columns=['petition_id', 'description'])
+
+        tfidf_matrix = tf.fit_transform(desc)
+        cosine_similarities = linear_kernel(tfidf_matrix, tfidf_matrix)
+        count=0
+        for idx, row in usersF.iteritems():
+            similar_indices = cosine_similarities[count].argsort()[:-10:-1]
+            similar_items = [(cosine_similarities[count][i], usersF[idx]) for i in similar_indices]
+            #similar_indices = cosine_similarities[count].argsort()[:-10:-1]
+            #similar_items = [(cosine_similarities[count][i], ds['petition_id'][i]) for i in similar_indices]
+            # First item is the item itself, so remove it.
+            # Each dictionary entry is like: [(1,2), (3,4)], with each tuple being (score, item_id)
+            results[count] = similar_items[1:]
+            resultsIndexes[count] = similar_indices[1:]
+            count += 1
+        count = 0
+        users, items = self.all_R.nonzero()
+        Con_BoW_pRstar=self.all_R.copy()
+        for u, i in zip(users, items):
+            # compute weighted average petition based similarity rating
+            real = self.all_R[u][i]
+            count = 0
+            wAvg = 0
+            simSum = 0
+            petition = self.list_n_items[i]
+            user = self.list_n_users[u]
+            for sim in results[u]:
+                C = resultsIndexes[u][count]
+                spetition = self.list_n_items[C]
+                A = self.all_R[C][i]
+                B = sim[0]
+                wAvg += A * B
+                simSum += sim[0]
+                count += 1
+            if simSum==0:
+                wAvg=0
+            else:
+                wAvg = float(wAvg) / (simSum)
+            Con_BoW_pRstar[u][i] = wAvg
+
+        rmse = self.rmse_Rstar(self.all_I, self.all_R,
+                               Con_BoW_pRstar)  # Calculate root mean squared error from dataset
+        print rmse
+
+
+
+    def contF_recommenderPetitions_BoW(self):
+        temp_petitionsF={}
+        petitionsF = {}
+        results={}
+        resultsIndexes={}
+        desc=[]
+        for p in self.collectionPetition.find({}, no_cursor_timeout=True):
+            st=TextCleaning.strip_tags(p['title'].decode('utf-8').strip().lower() + " " + p['overview'].decode('utf-8').strip().lower())
+            temp_petitionsF[p['petition_id']]=st
+            desc.append(st)
+        print('Number of words (after pre-processing) in the corpus = ',
+              len(set([word for w in desc for word in w])))
+        for k in self.petitionFSorted:
+            petitionsF[k]=temp_petitionsF[k]
+        tf = TfidfVectorizer(analyzer='word', stop_words='english')
+
+        #ds=pd.DataFrame(petitionsF.items(), columns=['petition_id', 'description'])
+
+        tfidf_matrix = tf.fit_transform(desc)
+        cosine_similarities = linear_kernel(tfidf_matrix, tfidf_matrix)
+        count=0
+        for idx, row in petitionsF.iteritems():
+            similar_indices = cosine_similarities[count].argsort()[:-10:-1]
+            similar_items = [(cosine_similarities[count][i], petitionsF[idx]) for i in similar_indices]
+            #similar_indices = cosine_similarities[count].argsort()[:-10:-1]
+            #similar_items = [(cosine_similarities[count][i], ds['petition_id'][i]) for i in similar_indices]
+            # First item is the item itself, so remove it.
+            # Each dictionary entry is like: [(1,2), (3,4)], with each tuple being (score, item_id)
+            results[count] = similar_items[1:]
+            resultsIndexes[count] = similar_indices[1:]
+            count += 1
+        count = 0
+        users, items = self.all_R.nonzero()
+        Con_BoW_pRstar=self.all_R.copy()
+        for u, i in zip(users, items):
+            # compute weighted average petition based similarity rating
+            real = self.all_R[u][i]
+            count = 0
+            wAvg = 0
+            simSum = 0
+            petition = self.list_n_items[i]
+            user = self.list_n_users[u]
+            for sim in results[i]:
+                C = resultsIndexes[i][count]
+                spetition = self.list_n_items[C]
+                A = self.all_R[u][C]
+                B = sim[0]
+                wAvg += A * B
+                simSum += sim[0]
+                count += 1
+            wAvg = float(wAvg) / (simSum)
+            Con_BoW_pRstar[u][i] = wAvg
+
+        rmse = self.rmse_Rstar(self.all_I, self.all_R,
+                               Con_BoW_pRstar)  # Calculate root mean squared error from dataset
+        print rmse
 
     def contF_recommenderPetitions(self):
         # Only consider non-zero matrix
@@ -436,6 +569,9 @@ class Recommender:
                 wAvg += A * B
                 simSum += sim[0]
                 count += 1
+            if simSum==0:
+                wAvg=0
+            else:
                 wAvg = float(wAvg) / (simSum)
             self.Con_uRstar[u][i] = wAvg
 
@@ -491,10 +627,10 @@ def main():
     #updateDataType()
     #checkDuplicateRatings()
     obj = Recommender()
-    '''
-    obj.CF_MF_recommender()
 
-    '''
+    #obj.CF_MF_recommender()
+
+
     print "Ratings: %d" % len(obj.df)
     print "Unique users: %d" % len(obj.uniquePetitions)
     print "Unique petitions: %d" % len(obj.uniqueUsers)
@@ -505,15 +641,21 @@ def main():
     #print dense_matrix.isnan().sum() #np.isnan(dense_matrix).count()
 
     # Petition based filtering
+
     obj.contF_recommenderPetitions_model()
     obj.contF_recommenderPetitions()
+
+    #obj.contF_recommenderPetitions_BoW()
 
     # user based filtering
     obj.contF_recommenderUsers_model()
     obj.contF_recommenderUsers()
 
+    obj.contF_recommenderUsers_BoW()
+
+
     # hybrid
-    obj.Hybrid_recommender()
+    #obj.Hybrid_recommender()
 
 
     '''

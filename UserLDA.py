@@ -26,26 +26,8 @@ from nltk.corpus import wordnet
 #Cleaning includes converting lowercase, remove stopwords wordnet, pucntuation
 # remove email, mentions, URLs, use WordNet Lemmatizer and porter stemmer
 
-class LDAPreplexity:
+class LDA:
 
-    def getUsersWithTopic(self, topic):
-        cur = self.userDocs.find({"$or": [{"GT": 0}, {"GT": 1}]}, no_cursor_timeout=True)
-        for u in cur:
-            for top in u['LDA_topic50']:
-                if top[0]==topic and top[1]>0.2:
-                    print u['id']
-
-    def getUsersWithWords(self, word1):
-        cur = self.userDocs.find({"$and": [{"GT": 0}, {"tweetsText": {'$regex': word1}}]}, no_cursor_timeout=True)
-        for u in cur:
-            print u['id']
-            count=0
-            cur1=self.tweetsDocs.find({"user_id": u['id']}, no_cursor_timeout=True)
-            for t in cur1:
-                for twt in t['text']:
-                    if word1 in twt and not t['retweeted_status'][count]:
-                        print 'user: '+str(u['id'])+' tweeted :'+twt+ 'with tweet id : '+str(t['id'][count])
-                    count+=1
 
     def preprocessing(self):
         cur=self.userDocs.find({}, no_cursor_timeout=True)
@@ -292,13 +274,13 @@ class LDAPreplexity:
 
 
 def main():
-    obj = LDAPreplexity()
+    obj = LDA()
     obj.get_LDA(500)
     #obj.preprocessing()
     #obj.get_LDA_TFIDF(40)
     #obj.getUsersWithTopic(30)
     #'snack','business','customer'
-    #obj.getUsersWithWords('Yemen')
+    obj.getUsersWithWords('Yemen')
     #obj.renameTFIDFColumn()
 
 if __name__ == '__main__':

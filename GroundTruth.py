@@ -66,6 +66,8 @@ def strip_tags(html):
 
 def getGTUsers():
     #lang en, in, no, ht,tl
+
+    # select user_id from GTapp_ratings where user_id in (85694830, 933968376682164224, 1126590570, 3017568426)
     sql= '''select distinct * from GTapp_ratings'''
     cur = conn.cursor()
     curU = conn.cursor()
